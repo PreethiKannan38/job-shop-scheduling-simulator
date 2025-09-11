@@ -8,8 +8,8 @@ from codes.jobs import Job
 
 class WorkspaceSimulation:
     """
-    Simulates a physical workspace with machines and sensor monitoring.
-    Monitors sensor readings and sends abnormal readings to MQTT broker.
+    Simulate a physical workspace with machines and sensor monitoring.
+    Monitors sensor readings and sends abnormalreadings to MQTT broker.
     """
     
     def __init__(self):
@@ -84,15 +84,15 @@ class WorkspaceSimulation:
         """Create 10 jobs with different machine requirements"""
         job_requirements = [
             ["A_1", "B_1"],           # Job 1: Requires A_1 and B_1
-            ["A_2", "C_1"],           # Job 2: Requires A_2 and C_1
-            ["B_1", "D_1"],           # Job 3: Requires B_1 and D_1
-            ["A_1", "A_2", "C_1"],    # Job 4: Requires A_1, A_2, and C_1
-            ["B_1", "C_1", "D_1"],    # Job 5: Requires B_1, C_1, and D_1
-            ["A_1"],                  # Job 6: Requires only A_1
-            ["A_2", "B_1"],           # Job 7: Requires A_2 and B_1
-            ["C_1", "D_1"],           # Job 8: Requires C_1 and D_1
-            ["A_1", "B_1", "C_1"],    # Job 9: Requires A_1, B_1, and C_1
-            ["A_2", "D_1"]            # Job 10: Requires A_2 and D_1
+            ["A_2", "C_1"],           
+            ["B_1", "D_1"],           
+            ["A_1", "A_2", "C_1"],    
+            ["B_1", "C_1", "D_1"],    
+            ["A_1"],                  
+            ["A_2", "B_1"],           
+            ["C_1", "D_1"],           
+            ["A_1", "B_1", "C_1"],    
+            ["A_2", "D_1"]            
         ]
         
         jobs = []
@@ -164,25 +164,25 @@ class WorkspaceSimulation:
         topic = f"{self.MQTT_ALERT_TOPIC}/{alert['machine_id']}"
         message = json.dumps(alert)
         self.mqtt_client.publish(topic, message)
-        print(f"🚨 ALERT: {alert['type']} - Machine {alert['machine_id']}")
-        print(f"   Published to topic '{topic}': {message}")
+        print(f" ALERT: {alert['type']} - Machine {alert['machine_id']}")
+        print(f" Published to topic '{topic}': {message}")
     
     def send_normal_reading(self, machine):
         """Send normal sensor reading to MQTT"""
         topic = f"{self.MQTT_TOPIC_PREFIX}/{machine.machine_id}"
         status_message = machine.get_status(self.timestep)
         self.mqtt_client.publish(topic, status_message)
-        print(f"📊 Normal reading - Machine {machine.machine_id}: Temp={machine.temperature:.1f}°C, Vib={machine.vibration:.1f}")
+        print(f"Normal reading - Machine {machine.machine_id}: Temp={machine.temperature:.1f}°C, Vib={machine.vibration:.1f}")
     
     def simulate_machine_failure(self, machine_id):
         """Simulate a complete machine failure"""
         machine = self.get_machine_by_id(machine_id)
         if machine and machine.operational:
-            # Force machine to fail by setting extreme values
+            # Force machine to fail by setting extreme values to replicate real life scenarios where machine fails
             machine.temperature = machine.temp_threshold + 10
             machine.vibration = machine.vib_threshold + 5
             machine.operational = False
-            print(f"💥 Simulating complete failure of machine {machine_id}")
+            print(f" Simulating complete failure of machine {machine_id}")
     
     def assign_job_to_machine(self, job, machine_id):
         """Assign a job to a specific machine"""
@@ -190,7 +190,7 @@ class WorkspaceSimulation:
         if machine and machine.operational and machine_id not in self.current_jobs:
             self.current_jobs[machine_id] = job
             job.start()
-            print(f"🔧 Job {job.job_id} assigned to machine {machine_id}")
+            print(f" Job {job.job_id} assigned to machine {machine_id}")
             return True
         return False
     
@@ -201,7 +201,7 @@ class WorkspaceSimulation:
             job.complete()
             self.completed_jobs.append(job)
             del self.current_jobs[machine_id]
-            print(f"✅ Job {job.job_id} completed on machine {machine_id}")
+            print(f" Job {job.job_id} completed on machine {machine_id}")
     
     def process_timestep(self):
         """Process one timestep of the simulation"""
@@ -210,10 +210,10 @@ class WorkspaceSimulation:
         print(f"TIMESTEP {self.timestep}")
         print(f"{'='*60}")
         
-        # Simulate random job processing on machines (genetic algorithm handles assignment)
+        # Simulate random job processing on machines
         for machine in self.machines:
-            # Random chance of machine processing a job (simulating genetic algorithm assignment)
-            if random.random() < 0.4 and machine.operational:  # 40% chance of processing
+            # Random chance of machine processing a job 
+            if random.random() < 0.4 and machine.operational:  #randomness to replicate real life scenarios
                 # Simulate job processing effects with smaller increments
                 temp_increment = random.uniform(1, 4)  # Reduced from 3-8
                 vib_increment = random.uniform(0.5, 2)  # Reduced from 1-3
@@ -242,7 +242,7 @@ class WorkspaceSimulation:
                     if machine and machine.operational:
                         spike_amount = random.uniform(8, 15)
                         machine.temperature += spike_amount
-                        print(f"🔥 Temperature spike on machine {event_data['machine']}: +{spike_amount:.1f}°C")
+                        print(f" Temperature spike on machine {event_data['machine']}: +{spike_amount:.1f}°C")
                 elif event_type == 'high_load':
                     machine = self.get_machine_by_id(event_data['machine'])
                     if machine and machine.operational:
@@ -250,13 +250,13 @@ class WorkspaceSimulation:
                         load_vib = random.uniform(2, 4)
                         machine.temperature += load_temp
                         machine.vibration += load_vib
-                        print(f"⚡ High load on machine {event_data['machine']}: Temp +{load_temp:.1f}°C, Vib +{load_vib:.1f}")
+                        print(f" High load on machine {event_data['machine']}: Temp +{load_temp:.1f}°C, Vib +{load_vib:.1f}")
         
         return True
     
     def run_simulation(self, max_timesteps=20):
         """Run the complete simulation"""
-        print("🚀 Starting Workspace Simulation...")
+        print(" Starting Workspace Simulation...")
         print(f"Machines: {[m.machine_id for m in self.machines]}")
         print(f"Jobs to process: {len(self.jobs)}")
         
@@ -267,7 +267,7 @@ class WorkspaceSimulation:
                 time.sleep(2)  # Wait 2 seconds between timesteps
         
         except KeyboardInterrupt:
-            print("\n⏹️ Simulation interrupted by user")
+            print("\n Simulation interrupted by user")
         
         finally:
             self.cleanup()
@@ -278,13 +278,13 @@ class WorkspaceSimulation:
         self.mqtt_client.disconnect()
         print("[MQTT] Disconnected gracefully.")
         
-        # Print final statistics
-        print(f"\n📊 SIMULATION SUMMARY:")
-        print(f"   Total timesteps: {self.timestep}")
-        print(f"   Jobs completed: {len(self.completed_jobs)}/{len(self.jobs)}")
-        print(f"   Jobs in progress: {len(self.current_jobs)}")
+        # Print final statistics of the physical workshop setup
+        print(f"\n SIMULATION SUMMARY:")
+        print(f"  Total timesteps: {self.timestep}")
+        print(f"  Jobs completed: {len(self.completed_jobs)}/{len(self.jobs)}")
+        print(f"  Jobs in progress: {len(self.current_jobs)}")
         
-        print(f"\n🔧 MACHINE STATUS:")
+        print(f"\n MACHINE STATUS:")
         for machine in self.machines:
             status = "Operational" if machine.operational else "Failed"
             print(f"   {machine.machine_id}: {status} (Temp: {machine.temperature:.1f}°C, Vib: {machine.vibration:.1f})")
@@ -294,3 +294,4 @@ if __name__ == "__main__":
     # Create and run the simulation
     simulation = WorkspaceSimulation()
     simulation.run_simulation(max_timesteps=15)
+
