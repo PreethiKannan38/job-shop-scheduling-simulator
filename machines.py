@@ -1,95 +1,144 @@
-import random
+# machines.py
 import json
+import random
+from dataclasses import dataclass, field
+from typing import Optional, Tuple
+from jobs import Job
 
+@dataclass
 class Machine:
     """
-    Digital Twin Enabled Machine Class for Flexible Job Shop Simulation.
-
-    Attributes:
-        class_name (str): Category/type of the machine (e.g., 'A', 'B', 'C').
-        machine_id (str): Unique identifier for the machine (e.g., 'A_1').
-        temp_base (float): Baseline temperature when idle or after repair.
-        temp_threshold (float): Temperature limit for fault detection.
-        vib_base (float): Baseline vibration level.
-        vib_threshold (float): Vibration limit for fault detection.
-        repair_time (int): Number of timesteps required to repair after fault.
-
-    State Variables:
-        temperature (float): Current temperature of the machine.
-        vibration (float): Current vibration level.
-        operational (bool): Operational status (True = working, False = faulty).
-        repair_timer (int): Current repair countdown timer.
+    Digital Twin Enabled Machine: class-based routing + failure/repair.
     """
+    class_name: str
+    machine_id: str
+    temp_base: float
+    temp_threshold: float
+    vib_base: float
+    vib_threshold: float
+    repair_time: int
 
-    def __init__(self, class_name, machine_id, temp_base, temp_threshold, vib_base, vib_threshold, repair_time):
-        # Initialize machine identity and thresholds
-        self.class_name = class_name
-        self.machine_id = machine_id
+    temperature: float = field(init=False)
+    vibration: float = field(init=False)
+    busy_with: Optional[Job] = field(default=None, init=False)
+    repairing_left: int = field(default=0, init=False)
+    total_power_kwh: float = field(default=0.0, init=False)
+    
 
-        self.temp_base = temp_base
-        self.temp_threshold = temp_threshold
-        self.vib_base = vib_base
-        self.vib_threshold = vib_threshold
-        self.repair_time = repair_time
+    def __post_init__(self):
+        self.temperature = self.temp_base
+        self.vibration = self.vib_base
 
-        # Initialize dynamic status values
-        self.temperature = temp_base
-        self.vibration = vib_base
-        self.operational = True
-        self.repair_timer = 0
+    @property
+    def operational(self) -> bool:
+        return self.repairing_left == 0
 
-    def process_job(self, job_temp_increment, job_vib_increment):
+    @property
+    def idle(self) -> bool:
+        return self.operational and self.busy_with is None
+
+    def assign(self, job: Job) -> bool:
+        if not self.idle:
+            return False
+        if job.required_class != self.class_name:
+            return False
+        # --- reduction logic ---
+        # Compute difference from base values
+        temp_diff = self.temperature - self.temp_base
+        vib_diff  = self.vibration - self.vib_base
+
+        reduction = getattr(job, "reduction", 0.0)  # fallback safe
+
+        # Reduce current readings by that percentage of the excess
+        if reduction > 0:
+            self.temperature -= temp_diff * reduction
+            self.vibration  -= vib_diff * reduction
+
+        # Now assign the job
+        self.busy_with = job
+        return True
+
+    # --- helpers ---
+    def _cooldown(self):
+        self.temperature = max(self.temp_base, self.temperature - 1.2)
+        self.vibration  = max(self.vib_base,  self.vibration  - 0.25)
+
+    def _maybe_spike(self):
+        # small random spikes to occasionally cross thresholds
+        if random.random() < 0.07:
+            self.temperature += random.uniform(2.0, 6.0)
+        if random.random() < 0.07:
+            self.vibration  += random.uniform(0.8, 2.0)
+
+    # --- tick ---
+    def step(self) -> Tuple[Optional[str], Optional[Job]]:
         """
-        Simulates processing a job on the machine by affecting temperature and vibration.
-        If machine is faulty, it counts down repair time and recovers when complete.
-
-        Args:
-            job_temp_increment (float): Temperature increase caused by current job.
-            job_vib_increment (float): Vibration increase caused by current job.
+        Returns (event, data): event in {None, "FAILED", "STEP_DONE", "COMPLETED"}
         """
-        if not self.operational:
-            # Machine is under repair, increment repair timer
-            self.repair_timer += 1
-            if self.repair_timer >= self.repair_time:
-                # Repair finished: reset machine state
-                self.operational = True
+        if self.repairing_left > 0:
+            self.repairing_left -= 1
+            if self.repairing_left == 0:
                 self.temperature = self.temp_base
-                self.vibration = self.vib_base
-                self.repair_timer = 0
-            # If still repairing, no job processing occurs
-            return
+                self.vibration  = self.vib_base
+            return None, None
 
-        # Simulate random fluctuation/noise in temp and vibration increments
-        temp_change = job_temp_increment + random.uniform(-1.5, 1.5)
-        vib_change = job_vib_increment + random.uniform(-1, 1)
+        if self.busy_with:
+            j = self.busy_with
+            # apply job load + noise
+            self.temperature += j.temp_inc + random.uniform(-1.0, 1.4)
+            self.vibration  += j.vib_inc  + random.uniform(-0.4, 0.6)
+            power_kw = getattr(j, "current_power_kw", 0.0)
+            self.total_power_kwh += power_kw * (1 / 60)  # assuming 1 tick = 1 minute
+            self._maybe_spike()
+            # thresholds
+            if self.temperature >= self.temp_threshold or self.vibration >= self.vib_threshold:
+                # Return the job so the simulation can requeue to FRONT of same-class queue
+                failed_job = self.busy_with
+                failed_job.put_back_unfinished_step_front()
+                self.busy_with = None
+                self.repairing_left = self.repair_time
+                return "FAILED", failed_job
 
-        self.temperature += temp_change
-        self.vibration += vib_change
+            before = j.remaining_ticks_on_step
+            j.work_one_tick()
 
-        # Check if machine state exceeds fault thresholds
-        if self.temperature >= self.temp_threshold:
-            self.operational = False
-        elif self.vibration >= self.vib_threshold:
-            self.operational = False
+            if j.done:
+                finished = j
+                self.busy_with = None
+                return "COMPLETED", finished
 
-    def get_status(self, current_timestep):
-        """
-        Prepares a JSON-serializable dictionary describing the current machine status.
+            if before == 1:  # just finished a step (moved to next step)
+                step_done = j
+                self.busy_with = None
+                return "STEP_DONE", step_done
 
-        Args:
-            current_timestep (int): Global simulation timestep for logging.
+            return None, None
 
-        Returns:
-            str: JSON string representing machine status for MQTT.
-        """
-        status_str = "Operational" if self.operational else f"Faulty (Repair {self.repair_timer}/{self.repair_time})"
-        status_dict = {
-            "timestamp": current_timestep,
+        # idle
+        self._cooldown()
+        return None, None
+
+    def status_json(self, timestamp: int) -> str:
+        if self.repairing_left > 0:
+            status = f"Repairing ({self.repair_time - self.repairing_left}/{self.repair_time})"
+            current_job = "REPAIR"
+        elif self.busy_with:
+            status = "Operational"
+            current_job = self.busy_with.job_id
+        else:
+            status = "Operational"
+            current_job = "IDLE"
+
+        doc = {
+            "timestamp": timestamp,
             "machine_id": self.machine_id,
             "class_name": self.class_name,
             "temperature": round(self.temperature, 2),
             "vibration": round(self.vibration, 2),
-            "status": status_str
+            "status": status,
+            "current_job": current_job,  # never null
+            "temp_threshold": self.temp_threshold,
+            "vib_threshold": self.vib_threshold,
+            "power_kwh_total": round(self.total_power_kwh, 3),
         }
-        return json.dumps(status_dict)
-#will be changed as per requirements and once the job classes are confirmed
+        return json.dumps(doc)
